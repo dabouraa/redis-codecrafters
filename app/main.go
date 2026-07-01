@@ -213,13 +213,14 @@ func handleConnection(c net.Conn) {
 				if _, ok := streamData[result[1]]; ok {
 					c.Write([]byte("+stream\r\n"))
 					continue
-				}
-				if _, ok := varData[result[1]]; !ok     {
-					c.Write([]byte("+none\r\n"))
-				} else { 
-				listType := reflect.TypeOf(varData[result[1]])
-				t := listType.Kind()
-				c.Write([]byte(fmt.Sprintf("+%s\r\n", t)))
+				}else { 
+					if _, ok := varData[result[1]]; !ok     {
+						c.Write([]byte("+none\r\n"))
+					} else { 
+					listType := reflect.TypeOf(varData[result[1]])
+					t := listType.Kind()
+					c.Write([]byte(fmt.Sprintf("+%s\r\n", t)))
+					}
 				}
 			case "xadd":
 				streamData[result[1]] = make(map[string]any)
