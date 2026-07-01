@@ -21,6 +21,7 @@ var listData = make(map[string][]string)
 var mu sync.Mutex
 var cond *sync.Cond = sync.NewCond(&mu)
 var status bool = false
+var streamData = make(map[string]map[string]any)
 
 func main() {
 	l, err := net.Listen("tcp", "0.0.0.0:6379")
@@ -209,6 +210,10 @@ func handleConnection(c net.Conn) {
 					}
 				}
 			case "type": 
+				if _, ok := streamData[result[1]]; ok {
+					c.Write([]byte("+stream\r\n"))
+					continue
+				}
 				if _, ok := varData[result[1]]; !ok     {
 					c.Write([]byte("+none\r\n"))
 				} else { 
@@ -216,6 +221,16 @@ func handleConnection(c net.Conn) {
 				t := listType.Kind()
 				c.Write([]byte(fmt.Sprintf("+%s\r\n", t)))
 				}
+			case "xadd":
+				streamData[result[1]] = make(map[string]any)
+				streamData[result[1]]["id"] = result[2]
+				cond.L.Lock()
+				for i := 3; i < len(result) - 1; i+=2 {
+					streamData[result[1]][result[i]] = result[i+1]
+				}
+				cond.L.Unlock()
+				resp := streamData[result[1]]["id"].(string)
+				c.Write([]byte(fmt.Sprintf("$%d\r\n%s\r\n", len(resp), resp)))
 			}
 
 	}
