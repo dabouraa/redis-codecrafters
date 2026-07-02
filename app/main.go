@@ -14,6 +14,11 @@ import (
 	"reflect"
 )
 
+type StreamEntry struct {
+	ID string
+	Fields map[string]string
+}
+
 var _ = net.Listen
 var _ = os.Exit
 var varData = make(map[string]string)
@@ -21,7 +26,7 @@ var listData = make(map[string][]string)
 var mu sync.Mutex
 var cond *sync.Cond = sync.NewCond(&mu)
 var status bool = false
-var streamData = make(map[string]map[string]any)
+var streamData = make(map[string][]StreamEntry)
 
 func main() {
 	l, err := net.Listen("tcp", "0.0.0.0:6379")
@@ -212,7 +217,6 @@ func handleConnection(c net.Conn) {
 			case "type": 
 				if _, ok := streamData[result[1]]; ok {
 					c.Write([]byte("+stream\r\n"))
-					continue
 				}else { 
 					if _, ok := varData[result[1]]; !ok     {
 						c.Write([]byte("+none\r\n"))
@@ -223,15 +227,40 @@ func handleConnection(c net.Conn) {
 					}
 				}
 			case "xadd":
-				streamData[result[1]] = make(map[string]any)
-				streamData[result[1]]["id"] = result[2]
-				cond.L.Lock()
-				for i := 3; i < len(result) - 1; i+=2 {
-					streamData[result[1]][result[i]] = result[i+1]
+				count := 0
+				if result[2] == "0-0" { 
+					count += 1
+					c.Write([]byte("-ERR The ID specified in XADD must be greater than 0-0\r\n"))
+				
+				} else if _, ok := streamData[result[1]]; !ok { // does not already exist
+					if count == 0 {
+						resp := streamAppend(result)
+						c.Write([]byte(fmt.Sprintf("$%d\r\n%s\r\n", len(resp.ID), resp.ID)))
+					}
+				} else {
+					lastItem := streamData[result[1]][len(streamData[result[1]]) - 1]
+					id := result[2]
+					
+					digId, _ := strconv.ParseInt(string(id[len(id) - 1]), 10, 64)
+					lastDigId, _ := strconv.ParseInt(string(lastItem.ID[len(lastItem.ID) - 1]), 10, 64)
+					
+					intMs, _ := strconv.ParseInt(id[:len(id) - 2], 10, 64)
+					intLastMs, _ := strconv.ParseInt(lastItem.ID[:len(lastItem.ID) - 2], 10, 64)
+					
+					if intMs < intLastMs { 
+						c.Write([]byte("-ERR The ID specified in XADD is equal or smaller than the target stream top item\r\n"))
+					} else if intMs == intLastMs {
+						if digId <= lastDigId {
+							c.Write([]byte("-ERR The ID specified in XADD is equal or smaller than the target stream top item\r\n"))
+						} else {
+							resp := streamAppend(result)
+							c.Write([]byte(fmt.Sprintf("$%d\r\n%s\r\n", len(resp.ID), resp.ID)))
+						}
+					} else {
+						resp := streamAppend(result)
+						c.Write([]byte(fmt.Sprintf("$%d\r\n%s\r\n", len(resp.ID), resp.ID)))
+					}
 				}
-				cond.L.Unlock()
-				resp := streamData[result[1]]["id"].(string)
-				c.Write([]byte(fmt.Sprintf("$%d\r\n%s\r\n", len(resp), resp)))
 			}
 
 	}
@@ -284,4 +313,23 @@ func respParser(buff string) []string {
 		input[ind] = strings.ToLower(input[ind])
 	}
 	return input
+}
+
+func streamAppend(result []string) (resp StreamEntry) {
+	fields := make(map[string]string)
+	cond.L.Lock()
+	for i := 3; i <= len(result) -2; i += 2 {
+		fields[result[i]] = result[i+1]
+	}
+	cond.L.Unlock()
+	entry := StreamEntry {
+		ID: result[2],
+		Fields: fields,
+	}
+	cond.L.Lock()
+	streamData[result[1]] = append(streamData[result[1]], entry)
+	cond.L.Unlock()
+	resp = streamData[result[1]][len(streamData[result[1]]) - 1]
+	return resp
+	
 }
