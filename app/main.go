@@ -8,7 +8,7 @@ import (
 )
 
 type StreamEntry struct {
-	ID string
+	ID     string
 	Fields map[string]string
 }
 

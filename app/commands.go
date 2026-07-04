@@ -1,11 +1,13 @@
 package main
+
 import (
-	"net"
 	"fmt"
-	"time"
-	"strconv"
-	"slices"
+	"net"
 	"reflect"
+	"slices"
+	"strconv"
+	"time"
+	"strings"
 )
 
 func handlePing(c net.Conn) {
@@ -112,7 +114,7 @@ func handleLpush(c net.Conn, result []string) {
 	mu.Unlock()
 	c.Write([]byte(fmt.Sprintf(":%d\r\n", len(listData[result[1]]))))
 }
-func handleLlen(c net.Conn, result []string ) {
+func handleLlen(c net.Conn, result []string) {
 	c.Write([]byte(fmt.Sprintf(":%d\r\n", len(listData[result[1]]))))
 }
 func handleLpop(c net.Conn, result []string) {
@@ -139,7 +141,7 @@ func handleLpop(c net.Conn, result []string) {
 
 func handleBlpop(c net.Conn, result []string) {
 	sec, _ := strconv.ParseFloat(result[2], 64)
-	if sec == 0{
+	if sec == 0 {
 		cond.L.Lock()
 		for {
 			if len(listData[result[1]]) == 0 {
@@ -160,44 +162,53 @@ func handleBlpop(c net.Conn, result []string) {
 			timeout := time.After(time.Duration(sec) * time.Second)
 			if len(listData[result[1]]) == 0 {
 				select {
-					case <-timeout:
-						time.Sleep(500 * time.Millisecond)
-						if len(listData[result[1]]) == 0 {
-							c.Write([]byte("*-1\r\n"))
-						} else {
-							break
-						}
+				case <-timeout:
+					time.Sleep(500 * time.Millisecond)
+					if len(listData[result[1]]) == 0 {
+						c.Write([]byte("*-1\r\n"))
+					} else {
+						break
+					}
 				}
-				} else {
-					res := fmt.Sprintf("*2\r\n$%d\r\n%s\r\n", len(result[1]), result[1])
-					del := listData[result[1]][0]
-					cond.L.Lock()
-					listData[result[1]] = slices.Delete(listData[result[1]], 0, 1)
-					cond.L.Unlock()
-					res += fmt.Sprintf("$%d\r\n%s\r\n", len(del), del)
-					c.Write([]byte(res))
-				}
-
+			} else {
+				res := fmt.Sprintf("*2\r\n$%d\r\n%s\r\n", len(result[1]), result[1])
+				del := listData[result[1]][0]
+				cond.L.Lock()
+				listData[result[1]] = slices.Delete(listData[result[1]], 0, 1)
+				cond.L.Unlock()
+				res += fmt.Sprintf("$%d\r\n%s\r\n", len(del), del)
+				c.Write([]byte(res))
 			}
+
 		}
+	}
 }
 
 func handleType(c net.Conn, result []string) {
 	if _, ok := streamData[result[1]]; ok {
 		c.Write([]byte("+stream\r\n"))
-	}else {
-		if _, ok := varData[result[1]]; !ok     {
+	} else {
+		if _, ok := varData[result[1]]; !ok {
 			c.Write([]byte("+none\r\n"))
 		} else {
-		listType := reflect.TypeOf(varData[result[1]])
-		t := listType.Kind()
-		c.Write([]byte(fmt.Sprintf("+%s\r\n", t)))
+			listType := reflect.TypeOf(varData[result[1]])
+			t := listType.Kind()
+			c.Write([]byte(fmt.Sprintf("+%s\r\n", t)))
 		}
 	}
 }
 
 func handleXadd(c net.Conn, result []string) {
 	count := 0
+	if _, ok := streamData[result[1]]; ok {
+		if strings.Contains(result[2], "*") { 
+			result[2] = handleAutoSequence(result, true)
+		} 
+	} else {
+		if strings.Contains(result[2], "*") {
+			result[2] = handleAutoSequence(result, false)
+		}
+	}
 	if result[2] == "0-0" {
 		count += 1
 		c.Write([]byte("-ERR The ID specified in XADD must be greater than 0-0\r\n"))
@@ -208,14 +219,14 @@ func handleXadd(c net.Conn, result []string) {
 			c.Write([]byte(fmt.Sprintf("$%d\r\n%s\r\n", len(resp.ID), resp.ID)))
 		}
 	} else {
-		lastItem := streamData[result[1]][len(streamData[result[1]]) - 1]
+		lastItem := streamData[result[1]][len(streamData[result[1]])-1]
 		id := result[2]
 
-		digId, _ := strconv.ParseInt(string(id[len(id) - 1]), 10, 64)
-		lastDigId, _ := strconv.ParseInt(string(lastItem.ID[len(lastItem.ID) - 1]), 10, 64)
+		digId, _ := strconv.ParseInt(string(id[len(id)-1]), 10, 64)
+		lastDigId, _ := strconv.ParseInt(string(lastItem.ID[len(lastItem.ID)-1]), 10, 64)
 
-		intMs, _ := strconv.ParseInt(id[:len(id) - 2], 10, 64)
-		intLastMs, _ := strconv.ParseInt(lastItem.ID[:len(lastItem.ID) - 2], 10, 64)
+		intMs, _ := strconv.ParseInt(id[:len(id)-2], 10, 64)
+		intLastMs, _ := strconv.ParseInt(lastItem.ID[:len(lastItem.ID)-2], 10, 64)
 
 		if intMs < intLastMs {
 			c.Write([]byte("-ERR The ID specified in XADD is equal or smaller than the target stream top item\r\n"))
@@ -230,24 +241,46 @@ func handleXadd(c net.Conn, result []string) {
 			resp := streamAppend(result)
 			c.Write([]byte(fmt.Sprintf("$%d\r\n%s\r\n", len(resp.ID), resp.ID)))
 		}
-}
+	}
 }
 
 func streamAppend(result []string) (resp StreamEntry) {
 	fields := make(map[string]string)
 	cond.L.Lock()
-	for i := 3; i <= len(result) -2; i += 2 {
+	for i := 3; i <= len(result)-2; i += 2 {
 		fields[result[i]] = result[i+1]
 	}
 	cond.L.Unlock()
-	entry := StreamEntry {
-		ID: result[2],
+	entry := StreamEntry{
+		ID:     result[2],
 		Fields: fields,
 	}
 	cond.L.Lock()
 	streamData[result[1]] = append(streamData[result[1]], entry)
 	cond.L.Unlock()
-	resp = streamData[result[1]][len(streamData[result[1]]) - 1]
+	resp = streamData[result[1]][len(streamData[result[1]])-1]
 	return resp
 
+}
+
+func handleAutoSequence(result []string, ex bool) string{
+	seq := int64(0)
+	splitId := strings.Split(result[2], "-")
+	if ex == true { 
+		lastItem := streamData[result[1]][len(streamData[result[1]]) - 1]
+		lastMs := strings.Split(lastItem.ID, "-")
+		
+		if strings.Contains(lastMs[0], splitId[0]) {
+			seq, _ = strconv.ParseInt(splitId[1], 10, 64)
+			seq += 1
+		}
+	} else { 
+		if splitId[0] == "0" && seq == 0 {
+			seq = 1
+		} else {
+			seq = 0
+		}
+	}
+	result[2] = strings.Replace(result[2], "*", strconv.Itoa(int(seq)), 1)
+	return result[2]
 }

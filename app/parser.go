@@ -3,10 +3,10 @@ package main
 import (
 	"bufio"
 	"fmt"
-	"strings"
-	"strconv"
-	"slices"
 	"io"
+	"slices"
+	"strconv"
+	"strings"
 )
 
 func respParser(buff string) []string {

@@ -1,9 +1,9 @@
 package main
 
 import (
-	"net"
-	"io"
 	"fmt"
+	"io"
+	"net"
 )
 
 func handleConnection(c net.Conn) {
@@ -40,11 +40,11 @@ func handleConnection(c net.Conn) {
 			handleLpop(c, result)
 		case "blpop":
 			handleBlpop(c, result)
-		case "type": 
+		case "type":
 			handleType(c, result)
 		case "xadd":
 			handleXadd(c, result)
-				}
-			}
-
+		}
 	}
+
+}
