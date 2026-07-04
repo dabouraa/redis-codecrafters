@@ -199,6 +199,9 @@ func handleType(c net.Conn, result []string) {
 }
 
 func handleXadd(c net.Conn, result []string) {
+	if result[2] == "*" {
+		result[2] = handleAutoId(result)
+	}
 	count := 0
 	if _, ok := streamData[result[1]]; ok {
 		if strings.Contains(result[2], "*") { 
@@ -263,7 +266,9 @@ func streamAppend(result []string) (resp StreamEntry) {
 
 }
 
-func handleAutoSequence(result []string, ex bool) string{
+func handleAutoSequence(result []string, ex bool) string{ // generates the sequnce number only
+	// strings count to see if theres more than one asterisk
+	// if so use time.Now().UnixMilli() to generate left side
 	seq := int64(0)
 	splitId := strings.Split(result[2], "-")
 	if ex == true { 
@@ -283,4 +288,23 @@ func handleAutoSequence(result []string, ex bool) string{
 	}
 	result[2] = strings.Replace(result[2], "*", strconv.Itoa(int(seq)), 1)
 	return result[2]
+}
+
+func handleAutoId(result []string) string { // generates the entire ID number
+	seq := ""
+	ms := time.Now().UnixMilli()
+	strMs := strconv.Itoa(int(ms))
+	result[2] = fmt.Sprintf("%s-*", string(strMs))
+	exist := slices.ContainsFunc(streamData[result[1]], func(e StreamEntry) bool {
+		trimId := strings.Split(e.ID, "-")
+		return trimId[0] == string(strMs)
+	})
+	if !exist {
+		seq = handleAutoSequence(result, false)
+	} else {
+		seq = handleAutoSequence(result, true)
+	}
+	result[2] = fmt.Sprintf("%s-%s", string(strMs), seq)
+	resp := fmt.Sprintf("%s", seq)
+	return resp
 }
