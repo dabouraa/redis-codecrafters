@@ -312,6 +312,9 @@ func handleXrange(c net.Conn, result []string) {
 	if result[2] == "-" {
 		result[2] = streamData[result[1]][0].ID
 	}
+	if result[3] == "+" {
+		result[3] = streamData[result[1]][len(streamData[result[1]]) - 1].ID
+	}
 	startSeqExist := strings.Contains(result[2], "-")
 	endSeqExist := strings.Contains(result[3], "-")
 	if !startSeqExist {
