@@ -44,7 +44,9 @@ func handleConnection(c net.Conn) {
 			handleType(c, result)
 		case "xadd":
 			handleXadd(c, result)
-		}
+		case "xrange":
+			handleXrange(c, result)
+		}	
 	}
 
 }

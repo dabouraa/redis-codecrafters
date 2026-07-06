@@ -266,7 +266,7 @@ func streamAppend(result []string) (resp StreamEntry) {
 
 }
 
-func handleAutoSequence(result []string, ex bool) string{ // generates the sequnce number only
+func handleAutoSequence(result []string, ex bool) string{ // generates the sequnce number, but returns the entire ID
 	// strings count to see if theres more than one asterisk
 	// if so use time.Now().UnixMilli() to generate left side
 	seq := int64(0)
@@ -304,7 +304,40 @@ func handleAutoId(result []string) string { // generates the entire ID number
 	} else {
 		seq = handleAutoSequence(result, true)
 	}
-	result[2] = fmt.Sprintf("%s-%s", string(strMs), seq)
 	resp := fmt.Sprintf("%s", seq)
 	return resp
+}
+
+func handleXrange(c net.Conn, result []string) {
+	startSeqExist := strings.Contains(result[2], "-")
+	endSeqExist := strings.Contains(result[3], "-")
+	if !startSeqExist {
+		result[2] += "-0"
+	}
+	if !endSeqExist {
+		sampleObj := streamData[result[1]][len(streamData[result[1]]) - 1]
+		lastDig := strings.Trim(sampleObj.ID, "-")
+		result[2] += "-" + string(lastDig[1])
+	}
+	start := slices.IndexFunc(streamData[result[1]], func (e StreamEntry) bool {
+		return e.ID == result[2]
+	})
+	end := slices.IndexFunc(streamData[result[1]], func (e StreamEntry) bool {
+		return e.ID == result[3]
+	})
+	tot := (end - start) + 1
+	resp := fmt.Sprintf("*%d\r\n", tot)
+	for i := start; i <= end; i++ {
+		entry := streamData[result[1]][i]
+
+		resp += "*2\r\n"
+		resp += fmt.Sprintf("$%d\r\n%s\r\n", len(entry.ID), entry.ID)
+		resp += fmt.Sprintf("*%d\r\n", len(entry.Fields)*2)
+		
+		for field, value := range entry.Fields {
+			resp += fmt.Sprintf("$%d\r\n%s\r\n", len(field), field)
+			resp += fmt.Sprintf("$%d\r\n%s\r\n", len(value), value)
+		}
+	}
+	c.Write([]byte(resp))
 }
