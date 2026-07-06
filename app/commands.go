@@ -309,6 +309,9 @@ func handleAutoId(result []string) string { // generates the entire ID number
 }
 
 func handleXrange(c net.Conn, result []string) {
+	if result[2] == "-" {
+		result[2] = streamData[result[1]][0].ID
+	}
 	startSeqExist := strings.Contains(result[2], "-")
 	endSeqExist := strings.Contains(result[3], "-")
 	if !startSeqExist {
