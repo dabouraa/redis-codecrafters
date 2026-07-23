@@ -347,3 +347,26 @@ func handleXrange(c net.Conn, result []string) {
 	}
 	c.Write([]byte(resp))
 }
+
+func handleXread(c net.Conn, result []string) {
+	start := slices.IndexFunc(streamData[result[2]], func (e StreamEntry) bool {
+		return e.ID == result[3]
+}) + 1
+	matched := streamData[result[2]][start:]
+	resp := "*1\r\n"
+		resp += "*2\r\n"
+		resp += "$" + strconv.Itoa(len(result[2])) + "\r\n" + result[2] + "\r\n"
+		resp += "*" + strconv.Itoa(len(matched)) + "\r\n"
+
+		for _, e := range matched {
+			resp += "*2\r\n"
+			resp += "$" + strconv.Itoa(len(e.ID)) + "\r\n" + e.ID + "\r\n"
+			resp += "*" + strconv.Itoa(len(e.Fields)*2) + "\r\n"
+			for k, v := range e.Fields {
+				resp += "$" + strconv.Itoa(len(k)) + "\r\n" + k + "\r\n"
+				resp += "$" + strconv.Itoa(len(v)) + "\r\n" + v + "\r\n"
+			}
+		}
+
+		c.Write([]byte(resp))
+} 

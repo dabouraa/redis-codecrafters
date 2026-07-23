@@ -46,7 +46,10 @@ func handleConnection(c net.Conn) {
 			handleXadd(c, result)
 		case "xrange":
 			handleXrange(c, result)
-		}	
+		
+		case "xread":
+			handleXread(c, result)
+		}
 	}
 
 }
