@@ -358,7 +358,7 @@ func handleXread(c net.Conn, result []string) {
 		waitMs, _ = strconv.ParseInt(result[idx+1], 10, 64)
 		idx += 2
 	}
-	idx += 1 // skip the "streams" keyword
+	idx += 1 
 	remaining := result[idx:]
 	numStreams := len(remaining) / 2
 	keys := remaining[:numStreams]
