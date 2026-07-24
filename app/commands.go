@@ -260,6 +260,7 @@ func streamAppend(result []string) (resp StreamEntry) {
 	}
 	cond.L.Lock()
 	streamData[result[1]] = append(streamData[result[1]], entry)
+	cond.Broadcast()
 	cond.L.Unlock()
 	resp = streamData[result[1]][len(streamData[result[1]])-1]
 	return resp
@@ -349,24 +350,73 @@ func handleXrange(c net.Conn, result []string) {
 }
 
 func handleXread(c net.Conn, result []string) {
-	start := slices.IndexFunc(streamData[result[2]], func (e StreamEntry) bool {
-		return e.ID == result[3]
-}) + 1
-	matched := streamData[result[2]][start:]
-	resp := "*1\r\n"
-		resp += "*2\r\n"
-		resp += "$" + strconv.Itoa(len(result[2])) + "\r\n" + result[2] + "\r\n"
-		resp += "*" + strconv.Itoa(len(matched)) + "\r\n"
+	idx := 1
+	blocking := false
+	waitMs := int64(0)
+	if strings.ToLower(result[idx]) == "block" {
+		blocking = true
+		waitMs, _ = strconv.ParseInt(result[idx+1], 10, 64)
+		idx += 2
+	}
+	idx += 1 // skip the "streams" keyword
+	remaining := result[idx:]
+	numStreams := len(remaining) / 2
+	keys := remaining[:numStreams]
+	ids := remaining[numStreams:]
 
-		for _, e := range matched {
-			resp += "*2\r\n"
-			resp += "$" + strconv.Itoa(len(e.ID)) + "\r\n" + e.ID + "\r\n"
-			resp += "*" + strconv.Itoa(len(e.Fields)*2) + "\r\n"
-			for k, v := range e.Fields {
-				resp += "$" + strconv.Itoa(len(k)) + "\r\n" + k + "\r\n"
-				resp += "$" + strconv.Itoa(len(v)) + "\r\n" + v + "\r\n"
+	for i, key := range keys {
+		if ids[i] == "$" {
+			if n := len(streamData[key]); n > 0 {
+				ids[i] = streamData[key][n-1].ID
+			} else {
+				ids[i] = "0-0"
 			}
 		}
+	}
 
-		c.Write([]byte(resp))
-} 
+	waitStart := time.Now()
+
+	count := 0
+	body := ""
+	for {
+		count = 0
+		body = ""
+		for i, key := range keys {
+			start := slices.IndexFunc(streamData[key], func(e StreamEntry) bool {
+				return e.ID == ids[i]
+			}) + 1
+			matched := streamData[key][start:]
+			if len(matched) == 0 {
+				continue
+			}
+			count += 1
+			body += "*2\r\n"
+			body += "$" + strconv.Itoa(len(key)) + "\r\n" + key + "\r\n"
+			body += "*" + strconv.Itoa(len(matched)) + "\r\n"
+			for _, e := range matched {
+				body += "*2\r\n"
+				body += "$" + strconv.Itoa(len(e.ID)) + "\r\n" + e.ID + "\r\n"
+				body += "*" + strconv.Itoa(len(e.Fields)*2) + "\r\n"
+				for k, v := range e.Fields {
+					body += "$" + strconv.Itoa(len(k)) + "\r\n" + k + "\r\n"
+					body += "$" + strconv.Itoa(len(v)) + "\r\n" + v + "\r\n"
+				}
+			}
+		}
+		if count > 0 || !blocking {
+			break
+		}
+		if waitMs > 0 && time.Since(waitStart) >= time.Duration(waitMs)*time.Millisecond {
+			c.Write([]byte("*-1\r\n"))
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	if count == 0 {
+		c.Write([]byte("*-1\r\n"))
+		return
+	}
+	resp := "*" + strconv.Itoa(count) + "\r\n" + body
+	c.Write([]byte(resp))
+}
