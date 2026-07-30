@@ -49,6 +49,8 @@ func handleConnection(c net.Conn) {
 		
 		case "xread":
 			handleXread(c, result)
+		case "config":
+			handleConfig(c, result)
 		}
 	}
 

@@ -420,3 +420,13 @@ func handleXread(c net.Conn, result []string) {
 	resp := "*" + strconv.Itoa(count) + "\r\n" + body
 	c.Write([]byte(resp))
 }
+
+func handleConfig(c net.Conn, result []string) {
+	if result[1] == "GET" {
+		handleConfigGet(c , result)
+	}
+}
+
+func handleConfigGet(c net.Conn, result []string) {
+	
+}
